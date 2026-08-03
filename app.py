@@ -185,7 +185,7 @@ with tab2:
                         use_container_width=True,
                     )
 
-            # ── Desempate na tela e aplicação do zeramento dos concorrentes
+            # ── Desempate na tela e aplicação correta por linha
             df_final = df_comparativo.copy()
             if "Fornecedor Escolhido" not in df_final.columns:
                 df_final["Fornecedor Escolhido"] = df_final["Fornecedor Vencedor"]
@@ -193,7 +193,7 @@ with tab2:
             df_final = tratar_empates_interface(df_final)
             df_final = aplicar_fornecedor_escolhido(df_final, cols_fornecedores)
 
-            # Exibe a tabela principal já com os valores dos concorrentes zerados
+            # Exibe a tabela principal com os valores dos concorrentes devidamente zerados por linha
             st.dataframe(
                 df_final.style
                 .highlight_min(axis=1, color="lightgreen", subset=cols_fornecedores)
