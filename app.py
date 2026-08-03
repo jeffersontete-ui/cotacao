@@ -135,7 +135,7 @@ with tab3:
                     sucesso, msg = adicionar_fornecedor(nome, cnpj, telefone, email, vendedor)
                     if sucesso:
                         st.success(f"✅ {msg}")
-                        st.experimental_rerun()
+                        rerun()
                     else:
                         st.error(f"❌ {msg}")
 
