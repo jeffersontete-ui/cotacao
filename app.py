@@ -1,5 +1,10 @@
-﻿import json
-import os
+﻿from fornecedores import (
+    carregar_fornecedores,
+    salvar_fornecedores,
+    adicionar_fornecedor,
+    excluir_fornecedor,
+    atualizar_fornecedor,
+)
 
 import pandas as pd
 import streamlit as st
@@ -8,24 +13,6 @@ from comparador import processar_comparativo
 
 # Configuração da página
 st.set_page_config(page_title="Sistema Integrado de Cotações", layout="wide")
-
-# Persistência de fornecedores
-ARQUIVO_JSON = "fornecedores.json"
-
-
-def carregar_fornecedores():
-    if os.path.exists(ARQUIVO_JSON):
-        try:
-            with open(ARQUIVO_JSON, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
-    return []
-
-
-def salvar_fornecedores(dados):
-    with open(ARQUIVO_JSON, "w", encoding="utf-8") as f:
-        json.dump(dados, f, indent=2, ensure_ascii=False)
 
 
 st.title("💊 Sistema Integrado de Cotações e Fornecedores")
@@ -55,11 +42,11 @@ with tab1:
 
     with col2:
         fornecedores = carregar_fornecedores()
-        todos_nomes = [f["distribuidora"] for f in fornecedores if "distribuidora" in f]
+        todos_nomes = [f["nome"] for f in fornecedores if f.get("nome")]
         ativos_nomes = [
-            f["distribuidora"]
+            f["nome"]
             for f in fornecedores
-            if f.get("ativo") and "distribuidora" in f
+            if f.get("ativo", True) and f.get("nome")
         ]
 
         fornecedores_sel = st.multiselect(
@@ -116,40 +103,66 @@ with tab2:
             st.warning("Nenhum dado válido foi encontrado nos arquivos carregados.")
 
 with tab3:
-    st.header("Cadastro e Status dos Fornecedores")
-    st.caption(
-        "Edite diretamente na tabela abaixo. Marque/desmarque a opção 'ativo' e clique em Salvar."
-    )
+    st.header("🏢 Gestão e Cadastro de Fornecedores")
 
-    dados_fornecedores = carregar_fornecedores()
+    col_cad, col_list = st.columns([1, 1.5])
 
-    if not dados_fornecedores:
-        df_inicial = pd.DataFrame([
-            {
-                "distribuidora": "DISTRIBUIDORA EXEMPLO",
-                "representante": "Nome do Rep",
-                "telefone": "(00) 00000-0000",
-                "ativo": True,
-            }
-        ])
-    else:
-        df_inicial = pd.DataFrame(dados_fornecedores)
+    with col_cad:
+        st.subheader("➕ Novo Fornecedor")
+        with st.form("form_cad_fornecedor", clear_on_submit=True):
+            nome = st.text_input("Nome Fantasia / Distribuidora *")
+            cnpj = st.text_input("CNPJ (Opcional)")
+            vendedor = st.text_input("Nome do Vendedor / Contato")
+            telefone = st.text_input("Telefone / WhatsApp")
+            email = st.text_input("E-mail")
 
-    df_editado = st.data_editor(
-        df_inicial,
-        num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "distribuidora": st.column_config.TextColumn(
-                "Distribuidora", required=True
-            ),
-            "representante": st.column_config.TextColumn("Representante"),
-            "telefone": st.column_config.TextColumn("Telefone"),
-            "ativo": st.column_config.CheckboxColumn("Ativo?", default=True),
-        },
-    )
+            submeter = st.form_submit_button("💾 Salvar Fornecedor", use_container_width=True)
 
-    if st.button("💾 Salvar Alterações de Fornecedores", type="primary"):
-        novos_dados = df_editado.to_dict(orient="records")
-        salvar_fornecedores(novos_dados)
-        st.success("✅ Cadastro atualizado e salvo com sucesso no arquivo JSON!")
+            if submeter:
+                if not nome:
+                    st.warning("⚠️ O nome do fornecedor é obrigatório.")
+                else:
+                    sucesso, msg = adicionar_fornecedor(nome, cnpj, telefone, email, vendedor)
+                    if sucesso:
+                        st.success(f"✅ {msg}")
+                        st.experimental_rerun()
+                    else:
+                        st.error(f"❌ {msg}")
+
+    with col_list:
+        st.subheader("📋 Fornecedores Cadastrados")
+        lista_forn = carregar_fornecedores()
+
+        if not lista_forn:
+            st.info("Nenhum fornecedor cadastrado até o momento.")
+        else:
+            busca = st.text_input("🔍 Buscar fornecedor por nome:", "")
+            if busca:
+                lista_filtrada = [
+                    f for f in lista_forn if busca.lower() in f["nome"].lower()
+                ]
+            else:
+                lista_filtrada = lista_forn
+
+            st.metric("Total de Fornecedores", len(lista_filtrada))
+
+            for i, f in enumerate(lista_filtrada):
+                with st.expander(f"🏢 **{f['nome']}**"):
+                    col_info, col_acoes = st.columns([3, 1])
+
+                    with col_info:
+                        if f.get('vendedor'):
+                            st.write(f"👤 **Vendedor:** {f['vendedor']}")
+                        if f.get('telefone'):
+                            st.write(f"📞 **Telefone:** {f['telefone']}")
+                        if f.get('email'):
+                            st.write(f"✉️ **E-mail:** {f['email']}")
+                        if f.get('cnpj'):
+                            st.write(f"📄 **CNPJ:** {f['cnpj']}")
+                        st.write(f"🔔 **Ativo:** {'Sim' if f.get('ativo', True) else 'Não'}")
+
+                    with col_acoes:
+                        if st.button("🗑️ Excluir", key=f"del_{f['nome']}_{i}", use_container_width=True):
+                            excluir_fornecedor(f['nome'])
+                            st.success("Fornecedor removido com sucesso!")
+                            st.experimental_rerun()
