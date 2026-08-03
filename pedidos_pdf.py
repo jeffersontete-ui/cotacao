@@ -1,17 +1,37 @@
 import io
 import zipfile
-
-from weasyprint import HTML
+from fpdf import FPDF
 from database import carregar_fornecedores
+
+
+class PDFPedido(FPDF):
+    def header(self):
+        self.set_font('Helvetica', 'B', 16)
+        self.set_text_color(31, 78, 120)
+        self.cell(0, 8, 'ORDEM DE PEDIDO DE COMPRA', ln=True)
+        self.set_font('Helvetica', '', 9)
+        self.set_text_color(100, 100, 100)
+        self.cell(0, 5, 'Sistema Integrado de Cotacoes - Farmacia & Saude', ln=True)
+        self.ln(3)
+        self.set_draw_color(31, 78, 120)
+        self.set_line_width(0.8)
+        self.line(10, self.get_y(), 200, self.get_y())
+        self.ln(6)
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Helvetica', 'I', 8)
+        self.set_text_color(128, 128, 128)
+        self.cell(0, 10, 'Este pedido de compra foi gerado automaticamente com base no mapa comparativo.', align='C')
 
 
 def gerar_zip_pedidos_pdf(df_comparativo):
     """
-    Gera um arquivo ZIP contendo as Ordens de Pedido em PDF formatadas
-    para cada distribuidora vencedora.
+    Gera um arquivo ZIP com os PDFs dos Pedidos de Compra usando fpdf2.
     """
     buffer_zip = io.BytesIO()
 
+    # Busca contatos dos fornecedores no banco de dados SQLite
     fornecedores_lista = carregar_fornecedores()
     dict_fornecedores = {f['nome'].lower().strip(): f for f in fornecedores_lista}
 
@@ -19,174 +39,87 @@ def gerar_zip_pedidos_pdf(df_comparativo):
         df_reset = df_comparativo.reset_index()
     else:
         df_reset = df_comparativo.copy()
-
+        
     df_vencedores = df_reset[['Medicamento', 'Menor Preço (R$)', 'Fornecedor Vencedor']].dropna(subset=['Fornecedor Vencedor'])
     grupos_fornecedores = df_vencedores.groupby('Fornecedor Vencedor')
 
     with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zip_file:
         for forn_vencedor, df_itens in grupos_fornecedores:
             info = dict_fornecedores.get(str(forn_vencedor).lower().strip(), {})
-            vendedor = info.get('vendedor', 'Não informado')
-            telefone = info.get('telefone', 'Não informado')
-            email = info.get('email', 'Não informado')
-            cnpj = info.get('cnpj', 'Não informado')
-
-            total_pedido = float(df_itens['Menor Preço (R$)'].sum())
-
-            rows_html = ""
+            
+            vendedor = info.get('vendedor', 'Nao informado')
+            telefone = info.get('telefone', 'Nao informado')
+            email = info.get('email', 'Nao informado')
+            cnpj = info.get('cnpj', 'Nao informado')
+            
+            pdf = PDFPedido()
+            pdf.add_page()
+            pdf.set_auto_page_break(auto=True, margin=15)
+            
+            # Bloco de Informações do Fornecedor
+            pdf.set_fill_color(248, 249, 250)
+            pdf.rect(10, pdf.get_y(), 190, 24, style='F')
+            
+            pdf.set_font('Helvetica', 'B', 9)
+            pdf.set_text_color(50, 50, 50)
+            
+            y_curr = pdf.get_y() + 3
+            pdf.set_xy(12, y_curr)
+            pdf.cell(92, 5, f"Fornecedor: {forn_vencedor}")
+            pdf.cell(92, 5, f"CNPJ: {cnpj}", ln=True)
+            
+            pdf.set_x(12)
+            pdf.cell(92, 5, f"Contato/Vendedor: {vendedor}")
+            pdf.cell(92, 5, f"Telefone: {telefone}", ln=True)
+            
+            pdf.set_x(12)
+            pdf.cell(92, 5, f"E-mail: {email}")
+            pdf.cell(92, 5, "Status: Itens Vencedores (Menor Preco)", ln=True)
+            
+            pdf.ln(8)
+            
+            # Cabeçalho da Tabela
+            pdf.set_fill_color(31, 78, 120)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_font('Helvetica', 'B', 9)
+            pdf.cell(15, 7, 'Item', border=0, align='C', fill=True)
+            pdf.cell(130, 7, 'Descricao do Medicamento', border=0, fill=True)
+            pdf.cell(45, 7, 'Preco Unitario', border=0, align='R', fill=True)
+            pdf.ln()
+            
+            # Linhas dos Itens
+            pdf.set_text_color(50, 50, 50)
+            pdf.set_font('Helvetica', '', 9)
+            
+            total_pedido = 0.0
+            fill = False
+            
             for idx, (_, row) in enumerate(df_itens.iterrows(), start=1):
-                med = row['Medicamento']
+                med = str(row['Medicamento'])
                 preco = float(row['Menor Preço (R$)'])
-                preco_fmt = f"R$ {preco:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-                rows_html += f"""
-                <tr>
-                    <td style="text-align: center;">{idx}</td>
-                    <td>{med}</td>
-                    <td style="text-align: right;">{preco_fmt}</td>
-                </tr>
-                """
-
-            total_fmt = f"R$ {total_pedido:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-            html_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <title>Pedido de Compra - {forn_vencedor}</title>
-                <style>
-                    @page {{
-                        size: A4;
-                        margin: 15mm 12mm;
-                        background-color: #ffffff;
-                    }}
-                    body {{
-                        font-family: Arial, sans-serif;
-                        color: #333333;
-                        margin: 0;
-                        padding: 0;
-                        font-size: 11pt;
-                    }}
-                    .header {{
-                        border-bottom: 2px solid #1F4E78;
-                        padding-bottom: 10px;
-                        margin-bottom: 20px;
-                    }}
-                    .header h1 {{
-                        color: #1F4E78;
-                        margin: 0 0 5px 0;
-                        font-size: 18pt;
-                        text-transform: uppercase;
-                    }}
-                    .header p {{
-                        margin: 0;
-                        color: #666666;
-                        font-size: 10pt;
-                    }}
-                    .info-block {{
-                        background-color: #f8f9fa;
-                        border-left: 4px solid #1F4E78;
-                        padding: 12px;
-                        margin-bottom: 20px;
-                        border-radius: 4px;
-                    }}
-                    .info-block table {{
-                        width: 100%;
-                        border-collapse: collapse;
-                    }}
-                    .info-block td {{
-                        padding: 4px 0;
-                        font-size: 10pt;
-                    }}
-                    table.items {{
-                        width: 100%;
-                        border-collapse: collapse;
-                        margin-bottom: 20px;
-                    }}
-                    table.items th {{
-                        background-color: #1F4E78;
-                        color: white;
-                        text-align: left;
-                        padding: 8px 10px;
-                        font-size: 10pt;
-                        font-weight: bold;
-                    }}
-                    table.items td {{
-                        border-bottom: 1px solid #e0e0e0;
-                        padding: 8px 10px;
-                        font-size: 10pt;
-                    }}
-                    table.items tr:nth-child(even) {{
-                        background-color: #f9f9f9;
-                    }}
-                    .total-box {{
-                        text-align: right;
-                        margin-top: 15px;
-                        font-size: 12pt;
-                        font-weight: bold;
-                        color: #1F4E78;
-                    }}
-                    .footer {{
-                        margin-top: 40px;
-                        border-top: 1px solid #e0e0e0;
-                        padding-top: 15px;
-                        font-size: 9pt;
-                        color: #777777;
-                        text-align: center;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div class="header">
-                    <h1>ORDEM DE PEDIDO DE COMPRA</h1>
-                    <p>Sistema Integrado de Cotações &bull; Farmácia & Saúde</p>
-                </div>
-
-                <div class="info-block">
-                    <table>
-                        <tr>
-                            <td><strong>Fornecedor:</strong> {forn_vencedor}</td>
-                            <td><strong>CNPJ:</strong> {cnpj}</td>
-                        </tr>
-                        <tr>
-                            <td><strong>Contato/Vendedor:</strong> {vendedor}</td>
-                            <td><strong>Telefone:</strong> {telefone}</td>
-                        </tr>
-                        <tr>
-                            <td><strong>E-mail:</strong> {email}</td>
-                            <td><strong>Status:</strong> Itens Vencedores (Menor Preço)</td>
-                        </tr>
-                    </table>
-                </div>
-
-                <table class="items">
-                    <thead>
-                        <tr>
-                            <th style="width: 8%; text-align: center;">Item</th>
-                            <th>Descrição do Medicamento</th>
-                            <th style="width: 25%; text-align: right;">Preço Unitário</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows_html}
-                    </tbody>
-                </table>
-
-                <div class="total-box">
-                    VALOR TOTAL DO PEDIDO: {total_fmt}
-                </div>
-
-                <div class="footer">
-                    Este pedido de compra foi gerado automaticamente com base no mapa comparativo de menor preço.
-                </div>
-            </body>
-            </html>
-            """
-
-            pdf_bytes = HTML(string=html_content).write_pdf()
-            nome_arq_pdf = f"Pedido_Compra_{str(forn_vencedor).replace(' ', '_')}.pdf"
-            zip_file.writestr(nome_arq_pdf, pdf_bytes)
-
+                total_pedido += preco
+                
+                if fill:
+                    pdf.set_fill_color(245, 245, 245)
+                else:
+                    pdf.set_fill_color(255, 255, 255)
+                preco_fmt = f"R$ {preco:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                
+                pdf.cell(15, 6, str(idx), align='C', fill=True)
+                pdf.cell(130, 6, med, fill=True)
+                pdf.cell(45, 6, preco_fmt, align='R', fill=True)
+                pdf.ln()
+                fill = not fill
+                
+            pdf.ln(4)
+            pdf.set_font('Helvetica', 'B', 11)
+            pdf.set_text_color(31, 78, 120)
+            total_fmt = f"R$ {total_pedido:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            pdf.cell(0, 8, f"VALOR TOTAL DO PEDIDO: {total_fmt}", align='R', ln=True)
+            
+            nome_pdf = f"Pedido_Compra_{str(forn_vencedor).replace(' ', '_')}.pdf"
+            # Use dest='S' to get PDF as bytes from fpdf2
+            zip_file.writestr(nome_pdf, pdf.output(dest='S'))
+            
     buffer_zip.seek(0)
     return buffer_zip
