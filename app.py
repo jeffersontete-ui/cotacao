@@ -10,6 +10,7 @@ import pandas as pd
 import streamlit as st
 from gerador_excel import gerar_zip_cotacoes
 from pedidos import gerar_zip_pedidos
+from pedidos_pdf import gerar_zip_pedidos_pdf
 from comparador import processar_comparativo
 
 # Configuração da página
@@ -98,17 +99,35 @@ with tab2:
             total_otimizado = df_comparativo['Menor Preço (R$)'].sum()
             st.metric(
                 label="💰 Custo Total Otimizado",
-                value=f"R$ {total_otimizado:,.2f}",
+                value=f"R$ {total_otimizado:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
             )
 
-            zip_pedidos = gerar_zip_pedidos(df_comparativo)
-            st.download_button(
-                label="📥 Baixar ZIP de Pedidos de Compra",
-                data=zip_pedidos,
-                file_name="Pedidos_de_Compra.zip",
-                mime="application/zip",
-                use_container_width=True,
-            )
+            st.divider()
+
+            st.subheader("🧾 Exportar Pedidos de Compra")
+            st.write("Baixe as ordens de compra agrupadas por distribuidora vencedora:")
+
+            col_pdf, col_excel = st.columns(2)
+
+            with col_pdf:
+                zip_pdf = gerar_zip_pedidos_pdf(df_comparativo)
+                st.download_button(
+                    label="📄 Baixar Pedidos em PDF (.zip)",
+                    data=zip_pdf,
+                    file_name="Pedidos_de_Compra_PDF.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                )
+
+            with col_excel:
+                zip_excel = gerar_zip_pedidos(df_comparativo)
+                st.download_button(
+                    label="📊 Baixar Pedidos em Excel (.zip)",
+                    data=zip_excel,
+                    file_name="Pedidos_de_Compra_Excel.zip",
+                    mime="application/zip",
+                    use_container_width=True,
+                )
         else:
             st.warning("Nenhum dado válido foi encontrado nos arquivos carregados.")
 
@@ -175,4 +194,4 @@ with tab3:
                         if st.button("🗑️ Excluir", key=f"del_{f['nome']}_{i}", use_container_width=True):
                             excluir_fornecedor(f['nome'])
                             st.success("Fornecedor removido com sucesso!")
-                            st.experimental_rerun()
+                            st.rerun()
