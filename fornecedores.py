@@ -1,3 +1,5 @@
+"""Camada fina sobre o database.py — mantida para não quebrar imports existentes."""
+
 import database
 
 

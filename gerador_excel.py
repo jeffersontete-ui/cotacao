@@ -4,8 +4,24 @@ import zipfile
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Protection, Side
 
+# Coluna técnica, oculta e protegida, usada só pelo sistema.
+# Z1 = nome do fornecedor | Z2 = id da cotação | Z4.. = quantidade de cada item.
+COL_META = "Z"
+SENHA_PROTECAO = "cotacao"
 
-def gerar_zip_cotacoes(medicamentos, fornecedores_selecionados):
+FONTE = "Arial"
+
+
+def gerar_zip_cotacoes(itens, fornecedores_selecionados, cotacao_id=None):
+    """
+    Gera um .xlsx por fornecedor, todos dentro de um .zip.
+
+    itens: lista de dicts {"medicamento": str, "qtd": int}.
+           Também aceita uma lista simples de strings (quantidade vira 1).
+    O fornecedor vê apenas Item / Descrição / Preço Unitário — a quantidade
+    viaja na coluna oculta e volta junto com o arquivo preenchido.
+    """
+    itens_norm = _normalizar_itens(itens)
     buffer_zip = io.BytesIO()
 
     with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zip_file:
@@ -14,12 +30,9 @@ def gerar_zip_cotacoes(medicamentos, fornecedores_selecionados):
             ws = wb.active
             ws.title = "Cotação"
 
-            # ATIVAR PROTEÇÃO DA PLANILHA
-            ws.protection.sheet = True
-
-            # Estilos do cabeçalho
             fill_header = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-            font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+            font_header = Font(name=FONTE, size=11, bold=True, color="FFFFFF")
+            fill_input = PatternFill(start_color="FFF9DB", end_color="FFF9DB", fill_type="solid")
             border_thin = Border(
                 left=Side(style='thin', color='D9D9D9'),
                 right=Side(style='thin', color='D9D9D9'),
@@ -27,141 +40,83 @@ def gerar_zip_cotacoes(medicamentos, fornecedores_selecionados):
                 bottom=Side(style='thin', color='D9D9D9'),
             )
 
-            # Título do Documento
-            ws['A1'] = f"COTAÇÃO DE PREÇOS - FORNECEDOR: {forn.upper()}"
-            ws['A1'].font = Font(name="Calibri", size=14, bold=True, color="1F4E78")
+            ws['A1'] = f"COTAÇÃO DE PREÇOS - FORNECEDOR: {str(forn).upper()}"
+            ws['A1'].font = Font(name=FONTE, size=14, bold=True, color="1F4E78")
 
-            # Cabeçalho da Tabela - APENAS 3 COLUNAS
+            ws['A2'] = ("Preencha somente a coluna C (Preço Unitário), destacada em amarelo. "
+                        "Não altere, apague ou reordene as linhas — devolva o arquivo no mesmo formato.")
+            ws['A2'].font = Font(name=FONTE, size=9, italic=True, color="808080")
+
             headers = ["Item", "Descrição do Medicamento", "Preço Unitário (R$)"]
-            ws.append([])
-            ws.append(headers)
-
             for col_num, header in enumerate(headers, 1):
-                cell = ws.cell(row=3, column=col_num)
+                cell = ws.cell(row=3, column=col_num, value=header)
                 cell.fill = fill_header
                 cell.font = font_header
                 cell.alignment = Alignment(horizontal="center", vertical="center")
                 cell.protection = Protection(locked=True)
 
-            for idx, med in enumerate(medicamentos, start=1):
+            for idx, item in enumerate(itens_norm, start=1):
                 row_idx = idx + 3
 
                 c1 = ws.cell(row=row_idx, column=1, value=idx)
-                c2 = ws.cell(row=row_idx, column=2, value=med.strip())
+                c2 = ws.cell(row=row_idx, column=2, value=item["medicamento"])
                 c3 = ws.cell(row=row_idx, column=3, value=None)
 
                 c1.alignment = Alignment(horizontal="center")
                 c2.alignment = Alignment(horizontal="left")
                 c3.alignment = Alignment(horizontal="right")
                 c3.number_format = 'R$ #,##0.00'
+                c3.fill = fill_input
+
+                for c in (c1, c2, c3):
+                    c.font = Font(name=FONTE, size=10)
+                    c.border = border_thin
 
                 c1.protection = Protection(locked=True)
                 c2.protection = Protection(locked=True)
                 c3.protection = Protection(locked=False)
 
-                for c in (c1, c2, c3):
-                    c.border = border_thin
+                # Quantidade oculta — o fornecedor não vê
+                ws[f"{COL_META}{row_idx}"] = int(item["qtd"])
+
+            # Metadados técnicos
+            ws[f"{COL_META}1"] = str(forn)
+            ws[f"{COL_META}2"] = "" if cotacao_id is None else str(cotacao_id)
 
             ws.column_dimensions['A'].width = 10
             ws.column_dimensions['B'].width = 50
             ws.column_dimensions['C'].width = 25
+            ws.column_dimensions[COL_META].hidden = True
+
+            # Protege a planilha: sem senha, qualquer um reexibe a coluna oculta
+            ws.protection.set_password(SENHA_PROTECAO)
+            ws.protection.sheet = True
+            ws.protection.formatColumns = True
 
             excel_buffer = io.BytesIO()
             wb.save(excel_buffer)
             excel_buffer.seek(0)
 
-            nome_arquivo = f"Cotacao_{forn.replace(' ', '_')}.xlsx"
+            nome_arquivo = f"Cotacao_{str(forn).replace(' ', '_')}.xlsx"
             zip_file.writestr(nome_arquivo, excel_buffer.getvalue())
 
     buffer_zip.seek(0)
     return buffer_zip
 
 
-def gerar_zip_pedidos(df_comparativo):
-    """
-    Recebe o DataFrame do mapa comparativo e gera um arquivo ZIP
-    contendo as planilhas de pedido de compra para cada fornecedor vencedor.
-    """
-    buffer_zip = io.BytesIO()
-
-    if df_comparativo.index.name == 'Medicamento':
-        df_reset = df_comparativo.reset_index()
-    else:
-        df_reset = df_comparativo.copy()
-
-    df_vencedores = df_reset[
-        ['Medicamento', 'Menor Preço (R$)', 'Fornecedor Vencedor']
-    ].dropna(subset=['Fornecedor Vencedor'])
-    grupos_fornecedores = df_vencedores.groupby('Fornecedor Vencedor')
-
-    with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        for forn_vencedor, df_itens in grupos_fornecedores:
-            wb = openpyxl.Workbook()
-            ws = wb.active
-            ws.title = "Pedido de Compra"
-
-            fill_header = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-            font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-            border_thin = Border(
-                left=Side(style='thin', color='D9D9D9'),
-                right=Side(style='thin', color='D9D9D9'),
-                top=Side(style='thin', color='D9D9D9'),
-                bottom=Side(style='thin', color='D9D9D9')
-            )
-
-            ws['A1'] = f"PEDIDO DE COMPRA - FORNECEDOR: {str(forn_vencedor).upper()}"
-            ws['A1'].font = Font(name="Calibri", size=14, bold=True, color="1F4E78")
-
-            headers = ["Item", "Descrição do Medicamento", "Preço Unitário (R$)"]
-            ws.append([])
-            ws.append(headers)
-
-            for col_num, header in enumerate(headers, 1):
-                cell = ws.cell(row=3, column=col_num)
-                cell.fill = fill_header
-                cell.font = font_header
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-
-            total_pedido = 0.0
-
-            for idx, (_, row) in enumerate(df_itens.iterrows(), start=1):
-                row_idx = idx + 3
-                med = row['Medicamento']
-                preco = float(row['Menor Preço (R$)'])
-                total_pedido += preco
-
-                c1 = ws.cell(row=row_idx, column=1, value=idx)
-                c2 = ws.cell(row=row_idx, column=2, value=med)
-                c3 = ws.cell(row=row_idx, column=3, value=preco)
-
-                c1.alignment = Alignment(horizontal="center")
-                c2.alignment = Alignment(horizontal="left")
-                c3.alignment = Alignment(horizontal="right")
-                c3.number_format = 'R$ #,##0.00'
-
-                for c in (c1, c2, c3):
-                    c.border = border_thin
-
-            last_row = len(df_itens) + 4
-            cell_lbl = ws.cell(row=last_row, column=2, value="TOTAL DO PEDIDO:")
-            cell_lbl.font = Font(name="Calibri", size=11, bold=True)
-            cell_lbl.alignment = Alignment(horizontal="right")
-
-            cell_tot = ws.cell(row=last_row, column=3, value=total_pedido)
-            cell_tot.font = Font(name="Calibri", size=11, bold=True, color="1F4E78")
-            cell_tot.number_format = 'R$ #,##0.00'
-            cell_tot.alignment = Alignment(horizontal="right")
-
-            ws.column_dimensions['A'].width = 10
-            ws.column_dimensions['B'].width = 50
-            ws.column_dimensions['C'].width = 25
-
-            excel_buffer = io.BytesIO()
-            wb.save(excel_buffer)
-            excel_buffer.seek(0)
-
-            nome_arq = f"Pedido_Compra_{str(forn_vencedor).replace(' ', '_')}.xlsx"
-            zip_file.writestr(nome_arq, excel_buffer.getvalue())
-
-    buffer_zip.seek(0)
-    return buffer_zip
+def _normalizar_itens(itens):
+    """Aceita lista de strings ou lista de dicts e devolve sempre dicts."""
+    normalizados = []
+    for item in itens:
+        if isinstance(item, dict):
+            med = str(item.get("medicamento", "")).strip()
+            try:
+                qtd = max(1, int(item.get("qtd", 1)))
+            except (TypeError, ValueError):
+                qtd = 1
+        else:
+            med = str(item).strip()
+            qtd = 1
+        if med:
+            normalizados.append({"medicamento": med, "qtd": qtd})
+    return normalizados

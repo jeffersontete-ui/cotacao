@@ -1,135 +1,245 @@
-﻿from fornecedores import (
-    carregar_fornecedores,
-    salvar_fornecedores,
-    adicionar_fornecedor,
-    excluir_fornecedor,
-    atualizar_fornecedor,
-)
+import io
 
 import pandas as pd
 import streamlit as st
+
+import database
+from comparador import processar_comparativo
+from fornecedores import (
+    adicionar_fornecedor,
+    atualizar_fornecedor,
+    carregar_fornecedores,
+    excluir_fornecedor,
+    salvar_fornecedores,
+)
 from gerador_excel import gerar_zip_cotacoes
 from pedidos import gerar_zip_pedidos
 from pedidos_pdf import gerar_zip_pedidos_pdf
-from comparador import processar_comparativo
 
-# Configuração da página
+COLS_CALCULADAS = [
+    "Qtd", "Menor Preço (R$)", "Subtotal Otimizado (R$)",
+    "Fornecedor Vencedor", "Fornecedor Escolhido", "Alerta",
+]
+
 st.set_page_config(page_title="Sistema Integrado de Cotações", layout="wide")
-
-
 st.title("💊 Sistema Integrado de Cotações e Fornecedores")
 
-# Criação das Abas principais
+
+def formata_reais(valor):
+    return f"R$ {valor:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
+
+
 tab1, tab2, tab3 = st.tabs([
     "📝 1. Criar Cotação",
     "📊 2. Comparar Preços",
     "🏢 3. Cadastro de Fornecedores",
 ])
 
+# ─────────────────────────────────────────────────────────── 1. Criar cotação
 with tab1:
     st.header("Gerar Nova Cotação")
+    st.caption(
+        "A quantidade fica só com você: ela viaja oculta na planilha e volta junto "
+        "com o arquivo preenchido. O fornecedor vê apenas o produto e o campo de preço."
+    )
 
     col1, col2 = st.columns([3, 2])
 
     with col1:
-        lista_padrao = (
-            "ACEBROFILINA 25 MG XPE PED 120 ML\nACECLOFENACO 100 MG C/ 12 CPR"
+        if "itens_cotacao" not in st.session_state:
+            st.session_state.itens_cotacao = pd.DataFrame(
+                {"Medicamento": ["", "", ""], "Qtd": [1, 1, 1]}
+            )
+
+        st.write("**Itens da cotação** — cole a lista ou digite; use o ➕ para novas linhas.")
+        itens_editados = st.data_editor(
+            st.session_state.itens_cotacao,
+            num_rows="dynamic",
+            width="stretch",
+            height=320,
+            column_config={
+                "Medicamento": st.column_config.TextColumn("Medicamento", width="large"),
+                "Qtd": st.column_config.NumberColumn("Qtd", min_value=1, step=1, default=1),
+            },
+            key="editor_itens",
         )
-        lista_meds = st.text_area(
-            "Lista de Medicamentos (um por linha):",
-            value=lista_padrao,
-            height=220,
-            help="Digite ou cole um medicamento por linha.",
-        )
+
+        with st.expander("📋 Colar uma lista pronta (um medicamento por linha)"):
+            texto_colado = st.text_area("Lista:", height=150, key="texto_colado")
+            if st.button("Adicionar itens colados"):
+                novos = [m.strip() for m in texto_colado.split("\n") if m.strip()]
+                if novos:
+                    df_novos = pd.DataFrame({"Medicamento": novos, "Qtd": [1] * len(novos)})
+                    base = itens_editados[itens_editados["Medicamento"].astype(str).str.strip() != ""]
+                    st.session_state.itens_cotacao = pd.concat([base, df_novos], ignore_index=True)
+                    st.rerun()
 
     with col2:
         fornecedores = carregar_fornecedores()
         todos_nomes = [f["nome"] for f in fornecedores if f.get("nome")]
-        ativos_nomes = [
-            f["nome"]
-            for f in fornecedores
-            if f.get("ativo", True) and f.get("nome")
-        ]
+        ativos_nomes = [f["nome"] for f in fornecedores if f.get("ativo", True) and f.get("nome")]
 
         fornecedores_sel = st.multiselect(
-            "Selecione os fornecedores para esta cotação:",
+            "Fornecedores desta cotação:",
             options=todos_nomes,
             default=ativos_nomes,
-            help="Fornecedores marcados como Ativos no cadastro vêm pré-selecionados automaticamente.",
+            help="Os marcados como Ativos no cadastro já vêm selecionados.",
+        )
+        descricao = st.text_input("Identificação da cotação (opcional)",
+                                  placeholder="Ex.: Compra semanal 04/08")
+
+    if st.button("⚙️ Gerar Planilhas de Cotação", width="stretch", type="primary"):
+        itens = []
+        for _, linha in itens_editados.iterrows():
+            med = str(linha.get("Medicamento", "")).strip()
+            if not med:
+                continue
+            try:
+                qtd = max(1, int(linha.get("Qtd", 1)))
+            except (TypeError, ValueError):
+                qtd = 1
+            itens.append({"medicamento": med, "qtd": qtd})
+
+        if not itens:
+            st.warning("⚠️ Insira pelo menos um medicamento.")
+        elif not fornecedores_sel:
+            st.warning("⚠️ Selecione pelo menos um fornecedor.")
+        else:
+            duplicados = pd.Series([i["medicamento"].upper() for i in itens])
+            repetidos = duplicados[duplicados.duplicated()].unique().tolist()
+            if repetidos:
+                st.warning(f"⚠️ Itens repetidos na lista: {', '.join(repetidos[:5])}")
+
+            cotacao_id = database.salvar_cotacao(itens, fornecedores_sel, descricao)
+            st.session_state.zip_cotacao = gerar_zip_cotacoes(itens, fornecedores_sel, cotacao_id)
+            st.session_state.cotacao_id = cotacao_id
+            st.session_state.itens_cotacao = itens_editados
+
+    if st.session_state.get("zip_cotacao"):
+        st.success(
+            f"✅ Cotação #{st.session_state.cotacao_id} salva e planilhas geradas."
+        )
+        st.download_button(
+            "📥 Baixar Arquivos de Cotação (.zip)",
+            data=st.session_state.zip_cotacao,
+            file_name=f"Cotacao_{st.session_state.cotacao_id}.zip",
+            mime="application/zip",
+            width="stretch",
         )
 
-    if st.button("⚙️ Gerar Planilhas de Cotação", use_container_width=True):
-        lista_meds_limpa = [m for m in lista_meds.split("\n") if m.strip()]
-
-        if not lista_meds_limpa:
-            st.warning("⚠️ Por favor, insira pelo menos um medicamento.")
-        elif not fornecedores_sel:
-            st.warning("⚠️ Por favor, selecione pelo menos um fornecedor.")
-        else:
-            zip_data = gerar_zip_cotacoes(lista_meds_limpa, fornecedores_sel)
-            st.success("✅ Planilhas geradas com sucesso!")
-            st.download_button(
-                label="📥 Baixar Arquivos de Cotação (.zip)",
-                data=zip_data,
-                file_name="Cotacoes_Fornecedores.zip",
-                mime="application/zip",
-                use_container_width=True,
-            )
-
+# ───────────────────────────────────────────────────────── 2. Comparar preços
 with tab2:
-    st.header("📊 Comparativo de Preços das Cotações")
-    st.write("Faça o upload das planilhas `.xlsx` devolvidas pelos fornecedores:")
-    
+    st.header("📊 Comparativo de Preços")
+
+    cotacoes = database.listar_cotacoes()
+    quantidades_padrao = {}
+    if cotacoes:
+        opcoes = {
+            f"#{c['id']} — {c['criada_em']} — {c['total_itens']} itens"
+            + (f" — {c['descricao']}" if c["descricao"] else ""): c["id"]
+            for c in cotacoes
+        }
+        escolha = st.selectbox(
+            "Cotação de referência (de onde vêm as quantidades, caso a planilha volte sem elas):",
+            options=list(opcoes.keys()),
+        )
+        quantidades_padrao = database.quantidades_da_cotacao(opcoes[escolha])
+
     arquivos_enviados = st.file_uploader(
-        "Selecione as planilhas dos fornecedores",
+        "Planilhas .xlsx devolvidas pelos fornecedores",
         type=["xlsx"],
-        accept_multiple_files=True
+        accept_multiple_files=True,
     )
-    
+
     if arquivos_enviados:
-        df_comparativo = processar_comparativo(arquivos_enviados)
-        
-        if df_comparativo is not None:
-            st.success(f"✅ {len(arquivos_enviados)} planilha(s) analisada(s) com sucesso!")
-            
-            empates = df_comparativo[df_comparativo['Fornecedor Vencedor'].str.contains('EMPATE', na=False)]
+        df_comparativo, relatorio = processar_comparativo(arquivos_enviados, quantidades_padrao)
 
-            if not empates.empty:
-                st.warning(f"⚠️ Atenção: Existem {len(empates)} item(ns) com empate de menor preço entre fornecedores! Verifique a tabela abaixo.")
-            
-            # Exibe a tabela comparativa estilizada
-            st.dataframe(
-                df_comparativo.style.highlight_min(
-                    axis=1, 
-                    color='lightgreen', 
-                    subset=[c for c in df_comparativo.columns if c not in ['Menor Preço (R$)', 'Fornecedor Vencedor']]
-                ).format(precision=2, na_rep="-"),
-                use_container_width=True
+        for erro in relatorio["erros"]:
+            st.error(f"❌ {erro}")
+        for aviso in relatorio["avisos"]:
+            st.warning(f"⚠️ {aviso}")
+
+        if relatorio["lidos"]:
+            st.success(
+                "✅ Entraram na comparação: "
+                + " · ".join(
+                    f"**{l['fornecedor']}** ({l['precos']}/{l['itens']} preços)"
+                    for l in relatorio["lidos"]
+                )
             )
-            
-            total_otimizado = df_comparativo['Menor Preço (R$)'].sum()
-            st.metric(
-                label="💰 Custo Total Otimizado", 
-                value=f"R$ {total_otimizado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            )
-            
-            st.divider()
-            
-            # Seção de geração dos PDFs de Pedido
-            st.subheader("🧾 Gerar Pedidos de Compra (PDF)")
-            
-            zip_pedidos = gerar_zip_pedidos_pdf(df_comparativo)
-            
-            st.download_button(
-                label="📦 Baixar Pedidos de Compra em PDF (.zip)",
-                data=zip_pedidos,
-                file_name="Pedidos_de_Compra_PDF.zip",
-                mime="application/zip",
-                use_container_width=True
-            )
+
+        if df_comparativo is None:
+            st.error("Nenhum arquivo pôde ser usado. Verifique as mensagens acima.")
         else:
-            st.error("⚠️ Não foi possível ler os preços das planilhas. Verifique a estrutura dos arquivos.")
+            cols_fornecedores = [c for c in df_comparativo.columns if c not in COLS_CALCULADAS]
 
+            alertas = df_comparativo[df_comparativo["Alerta"].astype(str).str.len() > 0]
+            if not alertas.empty:
+                with st.expander(f"🔍 {len(alertas)} item(ns) merecem conferência", expanded=True):
+                    st.dataframe(
+                        alertas[["Menor Preço (R$)", "Fornecedor Vencedor", "Alerta"]],
+                        width="stretch",
+                    )
+
+            st.dataframe(
+                df_comparativo.style
+                .highlight_min(axis=1, color="lightgreen", subset=cols_fornecedores)
+                .format(precision=2, na_rep="-", subset=cols_fornecedores +
+                        ["Menor Preço (R$)", "Subtotal Otimizado (R$)"]),
+                width="stretch",
+            )
+
+            # ── Desempate na tela
+            df_final = df_comparativo.copy()
+            df_final["Fornecedor Escolhido"] = df_final["Fornecedor Vencedor"]
+
+            empatados = df_comparativo[
+                df_comparativo["Fornecedor Vencedor"].astype(str).str.startswith("EMPATE")
+            ]
+            if not empatados.empty:
+                st.subheader(f"⚖️ Resolver {len(empatados)} empate(s)")
+                st.caption("Escolha o fornecedor de cada item; a decisão entra direto nos pedidos.")
+                for med, linha in empatados.iterrows():
+                    candidatos = (
+                        str(linha["Fornecedor Vencedor"])
+                        .replace("EMPATE (", "").replace(")", "").split(" / ")
+                    )
+                    escolhido = st.selectbox(
+                        f"{med} — {formata_reais(float(linha['Menor Preço (R$)']))}",
+                        options=candidatos,
+                        key=f"empate_{med}",
+                    )
+                    df_final.loc[med, "Fornecedor Escolhido"] = escolhido
+
+            col_a, col_b, col_c = st.columns(3)
+            col_a.metric("💰 Custo Total Otimizado",
+                         formata_reais(df_final["Subtotal Otimizado (R$)"].sum(skipna=True)))
+            col_b.metric("📦 Itens comparados", len(df_final))
+            sem_preco = int(df_final["Menor Preço (R$)"].isna().sum())
+            col_c.metric("🚫 Itens sem nenhum preço", sem_preco)
+
+            st.divider()
+            st.subheader("🧾 Gerar Pedidos de Compra")
+
+            col_pdf, col_xls = st.columns(2)
+            with col_pdf:
+                st.download_button(
+                    "📦 Pedidos em PDF (.zip)",
+                    data=gerar_zip_pedidos_pdf(df_final),
+                    file_name="Pedidos_de_Compra_PDF.zip",
+                    mime="application/zip",
+                    width="stretch",
+                )
+            with col_xls:
+                st.download_button(
+                    "📊 Pedidos em Excel (.zip)",
+                    data=gerar_zip_pedidos(df_final),
+                    file_name="Pedidos_de_Compra_XLSX.zip",
+                    mime="application/zip",
+                    width="stretch",
+                )
+
+# ──────────────────────────────────────────────────────── 3. Fornecedores
 with tab3:
     st.header("🏢 Gestão e Cadastro de Fornecedores")
 
@@ -144,10 +254,8 @@ with tab3:
             telefone = st.text_input("Telefone / WhatsApp")
             email = st.text_input("E-mail")
 
-            submeter = st.form_submit_button("💾 Salvar Fornecedor", use_container_width=True)
-
-            if submeter:
-                if not nome:
+            if st.form_submit_button("💾 Salvar Fornecedor", width="stretch"):
+                if not nome.strip():
                     st.warning("⚠️ O nome do fornecedor é obrigatório.")
                 else:
                     sucesso, msg = adicionar_fornecedor(nome, cnpj, telefone, email, vendedor)
@@ -157,6 +265,31 @@ with tab3:
                     else:
                         st.error(f"❌ {msg}")
 
+        st.divider()
+        st.subheader("💾 Backup do cadastro")
+        lista_atual = carregar_fornecedores()
+        if lista_atual:
+            csv_buffer = io.StringIO()
+            pd.DataFrame(lista_atual).to_csv(csv_buffer, index=False)
+            st.download_button(
+                "⬇️ Exportar fornecedores (.csv)",
+                data=csv_buffer.getvalue().encode("utf-8-sig"),
+                file_name="fornecedores.csv",
+                mime="text/csv",
+                width="stretch",
+            )
+
+        arquivo_csv = st.file_uploader("⬆️ Importar fornecedores (.csv)", type=["csv"],
+                                       key="import_forn")
+        if arquivo_csv is not None:
+            df_import = pd.read_csv(arquivo_csv)
+            st.dataframe(df_import, width="stretch")
+            st.warning("A importação substitui todo o cadastro atual.")
+            if st.button("Confirmar importação", key="confirma_import"):
+                salvar_fornecedores(df_import.to_dict("records"))
+                st.success("Cadastro importado.")
+                st.rerun()
+
     with col_list:
         st.subheader("📋 Fornecedores Cadastrados")
         lista_forn = carregar_fornecedores()
@@ -165,32 +298,40 @@ with tab3:
             st.info("Nenhum fornecedor cadastrado até o momento.")
         else:
             busca = st.text_input("🔍 Buscar fornecedor por nome:", "")
-            if busca:
-                lista_filtrada = [
-                    f for f in lista_forn if busca.lower() in f["nome"].lower()
-                ]
-            else:
-                lista_filtrada = lista_forn
+            lista_filtrada = [
+                f for f in lista_forn if busca.lower() in f["nome"].lower()
+            ] if busca else lista_forn
 
             st.metric("Total de Fornecedores", len(lista_filtrada))
 
-            for i, f in enumerate(lista_filtrada):
-                with st.expander(f"🏢 **{f['nome']}**"):
-                    col_info, col_acoes = st.columns([3, 1])
+            for f in lista_filtrada:
+                marca = "🟢" if f.get("ativo", True) else "⚪"
+                with st.expander(f"{marca} **{f['nome']}**"):
+                    with st.form(f"form_edit_{f['id']}"):
+                        novo_nome = st.text_input("Nome", value=f["nome"] or "")
+                        novo_cnpj = st.text_input("CNPJ", value=f.get("cnpj") or "")
+                        novo_vend = st.text_input("Vendedor", value=f.get("vendedor") or "")
+                        novo_tel = st.text_input("Telefone", value=f.get("telefone") or "")
+                        novo_mail = st.text_input("E-mail", value=f.get("email") or "")
+                        novo_ativo = st.checkbox("Ativo", value=bool(f.get("ativo", True)))
 
-                    with col_info:
-                        if f.get('vendedor'):
-                            st.write(f"👤 **Vendedor:** {f['vendedor']}")
-                        if f.get('telefone'):
-                            st.write(f"📞 **Telefone:** {f['telefone']}")
-                        if f.get('email'):
-                            st.write(f"✉️ **E-mail:** {f['email']}")
-                        if f.get('cnpj'):
-                            st.write(f"📄 **CNPJ:** {f['cnpj']}")
-                        st.write(f"🔔 **Ativo:** {'Sim' if f.get('ativo', True) else 'Não'}")
+                        if st.form_submit_button("💾 Salvar alterações", width="stretch"):
+                            ok = atualizar_fornecedor(f["nome"], {
+                                "nome": novo_nome, "cnpj": novo_cnpj, "vendedor": novo_vend,
+                                "telefone": novo_tel, "email": novo_mail, "ativo": novo_ativo,
+                            })
+                            if ok:
+                                st.success("Atualizado.")
+                                st.rerun()
+                            else:
+                                st.error("Não foi possível atualizar (nome já usado?).")
 
-                    with col_acoes:
-                        if st.button("🗑️ Excluir", key=f"del_{f['nome']}_{i}", use_container_width=True):
-                            excluir_fornecedor(f['nome'])
-                            st.success("Fornecedor removido com sucesso!")
-                            st.rerun()
+                    confirmar = st.checkbox(
+                        "Confirmo que quero excluir este fornecedor",
+                        key=f"conf_del_{f['id']}",
+                    )
+                    if st.button("🗑️ Excluir", key=f"del_{f['id']}",
+                                 disabled=not confirmar, width="stretch"):
+                        excluir_fornecedor(f["nome"])
+                        st.success("Fornecedor removido.")
+                        st.rerun()

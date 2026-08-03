@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+
+# Banco de dados local (contém fornecedores e histórico de cotações)
+*.db
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+
+# Arquivos gerados
+*.zip
+
+# Editores / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
