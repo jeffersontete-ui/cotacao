@@ -46,47 +46,52 @@ aba_cotacao, aba_cadastro = st.tabs(
 with aba_cotacao:
   st.header("Gerar Nova Cotação")
 
-  # 1. Entrada de Medicamentos
-  lista_padrao = (
-      "ACEBROFILINA 25 MG XPE PED 120 ML\nACECLOFENACO 100 MG C/ 12 CPR"
-  )
-  medicamentos_texto = st.text_area(
-      "Lista de Medicamentos (um por linha):",
-      value=lista_padrao,
-      height=180,
-      help="Digite ou cole um medicamento por linha.",
-  )
+  # 1. Criamos a divisão em duas colunas (60% e 40%)
+  col1, col2 = st.columns([3, 2])
 
-  # 2. Seleção de Fornecedores Ativos
-  fornecedores = carregar_fornecedores()
-  todos_nomes = [f["distribuidora"] for f in fornecedores if "distribuidora" in f]
-  ativos_nomes = [
-      f["distribuidora"]
-      for f in fornecedores
-      if f.get("ativo") and "distribuidora" in f
-  ]
+  # 2. Tudo dentro de 'with col1:' vai para a esquerda
+  with col1:
+    lista_padrao = (
+        "ACEBROFILINA 25 MG XPE PED 120 ML\nACECLOFENACO 100 MG C/ 12 CPR"
+    )
+    lista_meds = st.text_area(
+        "Lista de Medicamentos (um por linha):",
+        value=lista_padrao,
+        height=220,
+        help="Digite ou cole um medicamento por linha.",
+    )
 
-  fornecedores_selecionados = st.multiselect(
-      "Selecione os fornecedores para esta cotação:",
-      options=todos_nomes,
-      default=ativos_nomes,
-      help="Fornecedores marcados como Ativos no cadastro vêm pré-selecionados automaticamente.",
-  )
+  # 3. Tudo dentro de 'with col2:' vai para a direita
+  with col2:
+    fornecedores = carregar_fornecedores()
+    todos_nomes = [f["distribuidora"] for f in fornecedores if "distribuidora" in f]
+    ativos_nomes = [
+        f["distribuidora"]
+        for f in fornecedores
+        if f.get("ativo") and "distribuidora" in f
+    ]
+
+    fornecedores_sel = st.multiselect(
+        "Selecione os fornecedores para esta cotação:",
+        options=todos_nomes,
+        default=ativos_nomes,
+        help="Fornecedores marcados como Ativos no cadastro vêm pré-selecionados automaticamente.",
+    )
 
   # 3. Botão para Gerar Planilhas
   if st.button("⚙️ Gerar Planilhas de Cotação", type="primary"):
     lista_meds = [
-        m.strip() for m in medicamentos_texto.split("\n") if m.strip()
+        m.strip() for m in lista_meds.split("\n") if m.strip()
     ]
 
     if not lista_meds:
       st.error("⚠️ Insira pelo menos um medicamento para continuar.")
-    elif not fornecedores_selecionados:
+    elif not fornecedores_sel:
       st.warning("⚠️ Selecione ao menos um fornecedor para a cotação.")
     else:
       st.success(
           f"✅ Cotação gerada com {len(lista_meds)} medicamentos para"
-          f" {len(fornecedores_selecionados)} fornecedor(es)!"
+          f" {len(fornecedores_sel)} fornecedor(es)!"
       )
       # Aqui entra a chamada da função do seu gerador_excel.py
 
