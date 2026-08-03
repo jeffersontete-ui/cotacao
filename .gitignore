@@ -1,7 +1,7 @@
 __pycache__/
 *.py[cod]
 
-# Banco de dados local (contém fornecedores e histórico de cotações)
+# Banco de dados local (fornecedores e histórico de cotações)
 *.db
 
 # Ambientes virtuais

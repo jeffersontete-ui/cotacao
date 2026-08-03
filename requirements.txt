@@ -1,4 +1,3 @@
-# Dependências diretas do projeto (as demais vêm como dependências destas)
 streamlit>=1.60
 pandas>=2.2
 openpyxl>=3.1
