@@ -9,6 +9,7 @@
 import pandas as pd
 import streamlit as st
 from gerador_excel import gerar_zip_cotacoes
+from pedidos import gerar_zip_pedidos
 from comparador import processar_comparativo
 
 # Configuração da página
@@ -98,6 +99,15 @@ with tab2:
             st.metric(
                 label="💰 Custo Total Otimizado",
                 value=f"R$ {total_otimizado:,.2f}",
+            )
+
+            zip_pedidos = gerar_zip_pedidos(df_comparativo)
+            st.download_button(
+                label="📥 Baixar ZIP de Pedidos de Compra",
+                data=zip_pedidos,
+                file_name="Pedidos_de_Compra.zip",
+                mime="application/zip",
+                use_container_width=True,
             )
         else:
             st.warning("Nenhum dado válido foi encontrado nos arquivos carregados.")
