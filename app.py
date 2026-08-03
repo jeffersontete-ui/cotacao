@@ -26,6 +26,8 @@ st.title("💊 Sistema Integrado de Cotações e Fornecedores")
 
 
 def formata_reais(valor):
+    if pd.isna(valor):
+        return "R$ 0,00"
     return f"R$ {valor:,.2f}".replace(",", "@").replace(".", ",").replace("@", ".")
 
 
@@ -55,7 +57,7 @@ with tab1:
         itens_editados = st.data_editor(
             st.session_state.itens_cotacao,
             num_rows="dynamic",
-            width="stretch",
+            use_container_width=True,
             height=320,
             column_config={
                 "Medicamento": st.column_config.TextColumn("Medicamento", width="large"),
@@ -88,7 +90,7 @@ with tab1:
         descricao = st.text_input("Identificação da cotação (opcional)",
                                   placeholder="Ex.: Compra semanal 04/08")
 
-    if st.button("⚙️ Gerar Planilhas de Cotação", width="stretch", type="primary"):
+    if st.button("⚙️ Gerar Planilhas de Cotação", use_container_width=True, type="primary"):
         itens = []
         for _, linha in itens_editados.iterrows():
             med = str(linha.get("Medicamento", "")).strip()
@@ -124,7 +126,7 @@ with tab1:
             data=st.session_state.zip_cotacao,
             file_name=f"Cotacao_{st.session_state.cotacao_id}.zip",
             mime="application/zip",
-            width="stretch",
+            use_container_width=True,
         )
 
 # ───────────────────────────────────────────────────────── 2. Comparar preços
@@ -178,7 +180,7 @@ with tab2:
                 with st.expander(f"🔍 {len(alertas)} item(ns) merecem conferência", expanded=True):
                     st.dataframe(
                         alertas[["Menor Preço (R$)", "Fornecedor Vencedor", "Alerta"]],
-                        width="stretch",
+                        use_container_width=True,
                     )
 
             st.dataframe(
@@ -186,7 +188,7 @@ with tab2:
                 .highlight_min(axis=1, color="lightgreen", subset=cols_fornecedores)
                 .format(precision=2, na_rep="-", subset=cols_fornecedores +
                         ["Menor Preço (R$)", "Subtotal Otimizado (R$)"]),
-                width="stretch",
+                use_container_width=True,
             )
 
             # ── Desempate na tela
@@ -228,7 +230,7 @@ with tab2:
                     data=gerar_zip_pedidos_pdf(df_final),
                     file_name="Pedidos_de_Compra_PDF.zip",
                     mime="application/zip",
-                    width="stretch",
+                    use_container_width=True,
                 )
             with col_xls:
                 st.download_button(
@@ -236,7 +238,7 @@ with tab2:
                     data=gerar_zip_pedidos(df_final),
                     file_name="Pedidos_de_Compra_XLSX.zip",
                     mime="application/zip",
-                    width="stretch",
+                    use_container_width=True,
                 )
 
 # ──────────────────────────────────────────────────────── 3. Fornecedores
@@ -254,7 +256,7 @@ with tab3:
             telefone = st.text_input("Telefone / WhatsApp")
             email = st.text_input("E-mail")
 
-            if st.form_submit_button("💾 Salvar Fornecedor", width="stretch"):
+            if st.form_submit_button("💾 Salvar Fornecedor", use_container_width=True):
                 if not nome.strip():
                     st.warning("⚠️ O nome do fornecedor é obrigatório.")
                 else:
@@ -276,14 +278,14 @@ with tab3:
                 data=csv_buffer.getvalue().encode("utf-8-sig"),
                 file_name="fornecedores.csv",
                 mime="text/csv",
-                width="stretch",
+                use_container_width=True,
             )
 
         arquivo_csv = st.file_uploader("⬆️ Importar fornecedores (.csv)", type=["csv"],
                                        key="import_forn")
         if arquivo_csv is not None:
             df_import = pd.read_csv(arquivo_csv)
-            st.dataframe(df_import, width="stretch")
+            st.dataframe(df_import, use_container_width=True)
             st.warning("A importação substitui todo o cadastro atual.")
             if st.button("Confirmar importação", key="confirma_import"):
                 salvar_fornecedores(df_import.to_dict("records"))
@@ -315,7 +317,7 @@ with tab3:
                         novo_mail = st.text_input("E-mail", value=f.get("email") or "")
                         novo_ativo = st.checkbox("Ativo", value=bool(f.get("ativo", True)))
 
-                        if st.form_submit_button("💾 Salvar alterações", width="stretch"):
+                        if st.form_submit_button("💾 Salvar alterações", use_container_width=True):
                             ok = atualizar_fornecedor(f["nome"], {
                                 "nome": novo_nome, "cnpj": novo_cnpj, "vendedor": novo_vend,
                                 "telefone": novo_tel, "email": novo_mail, "ativo": novo_ativo,
@@ -331,7 +333,7 @@ with tab3:
                         key=f"conf_del_{f['id']}",
                     )
                     if st.button("🗑️ Excluir", key=f"del_{f['id']}",
-                                 disabled=not confirmar, width="stretch"):
+                                 disabled=not confirmar, use_container_width=True):
                         excluir_fornecedor(f["nome"])
                         st.success("Fornecedor removido.")
                         st.rerun()
