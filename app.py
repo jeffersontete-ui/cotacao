@@ -185,21 +185,22 @@ with tab2:
                         use_container_width=True,
                     )
 
-            st.dataframe(
-                df_comparativo.style
-                .highlight_min(axis=1, color="lightgreen", subset=cols_fornecedores)
-                .format(precision=2, na_rep="-", subset=cols_fornecedores +
-                        ["Menor Preço (R$)", "Subtotal Otimizado (R$)"]),
-                use_container_width=True,
-            )
-
-            # ── Desempate na tela (isolado no módulo desempate.py)
+            # ── Desempate na tela
             df_final = df_comparativo.copy()
             df_final["Fornecedor Escolhido"] = df_final["Fornecedor Vencedor"]
             df_final = tratar_empates_interface(df_final)
 
             # 🛠️ Aplica o recálculo que zera os concorrentes e ajusta os subtotais
             df_final = aplicar_fornecedor_escolhido(df_final, cols_fornecedores)
+
+            # Exibe a tabela atualizada refletindo os valores zerados dos concorrentes
+            st.dataframe(
+                df_final.style
+                .highlight_min(axis=1, color="lightgreen", subset=cols_fornecedores)
+                .format(precision=2, na_rep="-", subset=cols_fornecedores +
+                        ["Menor Preço (R$)", "Subtotal Otimizado (R$)"]),
+                use_container_width=True,
+            )
 
             col_a, col_b, col_c = st.columns(3)
             col_a.metric("💰 Custo Total Otimizado",
