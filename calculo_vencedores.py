@@ -2,39 +2,40 @@ import pandas as pd
 
 def aplicar_fornecedor_escolhido(df_comparativo, cols_fornecedores):
     """
-    Garante que, para cada item, apenas o fornecedor escolhido mantenha o preço,
-    os concorrentes fiquem zerados, e o Subtotal Otimizado seja recalculado com precisão.
+    Garante que, para cada item, apenas o fornecedor vencedor/escolhido mantenha o preço,
+    enquanto todos os concorrentes perdedores fiquem zerados (0.0), recalculando o subtotal.
     """
     if df_comparativo is None or df_comparativo.empty:
         return df_comparativo
 
     df_final = df_comparativo.copy()
 
-    # Se a coluna de escolha não existir ainda, inicia com o vencedor padrão
-    if "Fornecedor Escolhido" not in df_final.columns:
-        df_final["Fornecedor Escolhido"] = df_final["Fornecedor Vencedor"]
+    # Identifica a coluna de escolha do vencedor
+    coluna_escolha = "Fornecedor Escolhido" if "Fornecedor Escolhido" in df_final.columns else "Fornecedor Vencedor"
 
-    # 1. Zera o preço dos concorrentes e mantém apenas do escolhido
     for med, linha in df_final.iterrows():
-        vencedor_final = str(linha.get("Fornecedor Escolhido", ""))
-        preco_menor = linha.get("Menor Preço (R$)", 0.0)
+        vencedor_final = str(linha.get(coluna_escolha, ""))
+        
+        # Se for um empate bruto pendente de escolha na interface, pula o zeramento individual temporário
+        if not vencedor_final or vencedor_final.startswith("EMPATE"):
+            continue
 
-        # Ignora se for um empate genérico pendente de escolha
-        if vencedor_final and not vencedor_final.startswith("EMPATE"):
-            for col in cols_fornecedores:
-                if col in df_final.columns:
-                    if col != vencedor_final:
-                        df_final.loc[med, col] = 0.0
-                    else:
-                        val_atual = df_final.loc[med, col]
-                        if pd.isna(val_atual) or val_atual == 0:
-                            df_final.loc[med, col] = preco_menor
+        # Zera os concorrentes e valida o preço do vencedor
+        for col in cols_fornecedores:
+            if col in df_final.columns:
+                if col != vencedor_final:
+                    df_final.loc[med, col] = 0.0
+                else:
+                    # Se o valor do vencedor estiver vazio ou zero, recupera do menor preço
+                    val_atual = df_final.loc[med, col]
+                    if pd.isna(val_atual) or val_atual == 0:
+                        df_final.loc[med, col] = linha.get("Menor Preço (R$)", 0.0)
 
-    # 2. Recalcula o Subtotal Otimizado baseado no fornecedor escolhido x quantidade
+    # Recalcula o Subtotal Otimizado estritamente baseado no fornecedor escolhido x quantidade
     if "Qtd" in df_final.columns:
         subtotais = []
         for med, linha in df_final.iterrows():
-            vencedor_final = str(linha.get("Fornecedor Escolhido", ""))
+            vencedor_final = str(linha.get(coluna_escolha, ""))
             qtd = linha.get("Qtd", 1)
             
             if vencedor_final in cols_fornecedores:
