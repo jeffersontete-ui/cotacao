@@ -26,12 +26,11 @@ def aplicar_fornecedor_escolhido(df_comparativo, cols_fornecedores):
                     if col != vencedor_final:
                         df_final.loc[med, col] = 0.0
                     else:
-                        # Se por acaso estiver vazio no escolhido, assume o menor preço
                         val_atual = df_final.loc[med, col]
                         if pd.isna(val_atual) or val_atual == 0:
                             df_final.loc[med, col] = preco_menor
 
-    # 2. Recalcula o Subtotal Otimizado estritamente baseado no fornecedor escolhido x quantidade
+    # 2. Recalcula o Subtotal Otimizado baseado no fornecedor escolhido x quantidade
     if "Qtd" in df_final.columns:
         subtotais = []
         for med, linha in df_final.iterrows():
