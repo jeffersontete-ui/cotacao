@@ -92,6 +92,11 @@ with tab2:
         if df_comparativo is not None:
             st.success(f"✅ {len(arquivos_enviados)} planilha(s) analisada(s) com sucesso!")
             
+            empates = df_comparativo[df_comparativo['Fornecedor Vencedor'].str.contains('EMPATE', na=False)]
+
+            if not empates.empty:
+                st.warning(f"⚠️ Atenção: Existem {len(empates)} item(ns) com empate de menor preço entre fornecedores! Verifique a tabela abaixo.")
+            
             # Exibe a tabela comparativa estilizada
             st.dataframe(
                 df_comparativo.style.highlight_min(

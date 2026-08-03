@@ -41,9 +41,15 @@ def gerar_zip_pedidos_pdf(df_comparativo):
         df_reset = df_comparativo.copy()
         
     df_vencedores = df_reset[['Medicamento', 'Menor Preço (R$)', 'Fornecedor Vencedor']].dropna(subset=['Fornecedor Vencedor'])
-    grupos_fornecedores = df_vencedores.groupby('Fornecedor Vencedor')
+
+    # Filtra itens sem empate e itens em empate
+    df_sem_empate = df_vencedores[~df_vencedores['Fornecedor Vencedor'].str.startswith('EMPATE', na=False)]
+    df_empates = df_vencedores[df_vencedores['Fornecedor Vencedor'].str.startswith('EMPATE', na=False)]
+
+    grupos_fornecedores = df_sem_empate.groupby('Fornecedor Vencedor')
 
     with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        # Gera PDF por fornecedor vencedor (sem empates)
         for forn_vencedor, df_itens in grupos_fornecedores:
             info = dict_fornecedores.get(str(forn_vencedor).lower().strip(), {})
             
@@ -120,6 +126,50 @@ def gerar_zip_pedidos_pdf(df_comparativo):
             nome_pdf = f"Pedido_Compra_{str(forn_vencedor).replace(' ', '_')}.pdf"
             # Use dest='S' to get PDF as bytes from fpdf2
             zip_file.writestr(nome_pdf, pdf.output(dest='S'))
+
+        # Se houver empates, gera um PDF consolidado com os itens empatados
+        if not df_empates.empty:
+            pdf_emp = PDFPedido()
+            pdf_emp.add_page()
+            pdf_emp.set_auto_page_break(auto=True, margin=15)
+
+            pdf_emp.set_font('Helvetica', 'B', 12)
+            pdf_emp.set_text_color(31, 78, 120)
+            pdf_emp.cell(0, 8, 'Itens em Empate', ln=True)
+            pdf_emp.ln(6)
+
+            # Cabeçalho
+            pdf_emp.set_fill_color(31, 78, 120)
+            pdf_emp.set_text_color(255, 255, 255)
+            pdf_emp.set_font('Helvetica', 'B', 9)
+            pdf_emp.cell(15, 7, 'Item', border=0, align='C', fill=True)
+            pdf_emp.cell(110, 7, 'Descricao do Medicamento', border=0, fill=True)
+            pdf_emp.cell(35, 7, 'Menor Preco', border=0, align='R', fill=True)
+            pdf_emp.cell(30, 7, 'Fornecedores', border=0, align='C', fill=True)
+            pdf_emp.ln()
+
+            pdf_emp.set_text_color(50, 50, 50)
+            pdf_emp.set_font('Helvetica', '', 9)
+            fill = False
+            for idx, (_, row) in enumerate(df_empates.iterrows(), start=1):
+                med = str(row['Medicamento'])
+                preco = float(row['Menor Preço (R$)'])
+                fornecedores_text = str(row['Fornecedor Vencedor'])
+
+                if fill:
+                    pdf_emp.set_fill_color(245, 245, 245)
+                else:
+                    pdf_emp.set_fill_color(255, 255, 255)
+
+                preco_fmt = f"R$ {preco:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                pdf_emp.cell(15, 6, str(idx), align='C', fill=True)
+                pdf_emp.cell(110, 6, med, fill=True)
+                pdf_emp.cell(35, 6, preco_fmt, align='R', fill=True)
+                pdf_emp.cell(30, 6, fornecedores_text, align='C', fill=True)
+                pdf_emp.ln()
+                fill = not fill
+
+            zip_file.writestr('Itens_em_Empate.pdf', pdf_emp.output(dest='S'))
             
     buffer_zip.seek(0)
     return buffer_zip

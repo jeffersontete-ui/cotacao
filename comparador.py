@@ -1,11 +1,22 @@
 import pandas as pd
 
 
+def identificar_vencedor(row, cols_fornecedores):
+    menor_valor = row['Menor Preço (R$)']
+    if pd.isna(menor_valor):
+        return "Nenhum"
+    
+    # Encontra todos os fornecedores que oferecem o menor preço exatamente
+    vencedores = [col for col in cols_fornecedores if row.get(col) == menor_valor]
+    
+    if len(vencedores) > 1:
+        return f"EMPATE ({' / '.join(vencedores)})"
+    elif len(vencedores) == 1:
+        return vencedores[0]
+    return "Nenhum"
+
+
 def processar_comparativo(arquivos_enviados):
-    """
-    Recebe a lista de arquivos .xlsx enviados pelos fornecedores,
-    consolida os preços em uma tabela e identifica o menor valor e vencedor por item.
-    """
     if not arquivos_enviados:
         return None
 
@@ -13,12 +24,10 @@ def processar_comparativo(arquivos_enviados):
     
     for arquivo in arquivos_enviados:
         try:
-            # Obtém o nome do fornecedor a partir do nome do arquivo (ex: Cotacao_DistribuidoraA.xlsx)
+            # Extrai nome do fornecedor do arquivo
             nome_fornecedor = arquivo.name.replace("Cotacao_", "").replace(".xlsx", "").replace("_", " ").strip()
             
             df = pd.read_excel(arquivo)
-            
-            # Padroniza nomes das colunas
             df.columns = [str(c).strip().title() for c in df.columns]
             
             col_med = next((c for c in df.columns if 'Medicamento' in c or 'Descrição' in c or 'Item' in c), None)
@@ -42,78 +51,17 @@ def processar_comparativo(arquivos_enviados):
     if not dados_combinados:
         return None
 
-    # Monta DataFrame consolidado
     df_resultado = pd.DataFrame.from_dict(dados_combinados, orient='index')
     df_resultado.index.name = "Medicamento"
     
-    # Identifica o menor preço e o fornecedor vencedor por linha
-    fornecedores_cols = list(df_resultado.columns)
+    cols_fornecedores = list(df_resultado.columns)
     
-    df_resultado['Menor Preço (R$)'] = df_resultado[fornecedores_cols].min(axis=1)
-    df_resultado['Fornecedor Vencedor'] = df_resultado[fornecedores_cols].idxmin(axis=1)
+    # Calcula Menor Preço
+    df_resultado['Menor Preço (R$)'] = df_resultado[cols_fornecedores].min(axis=1)
+    
+    # Identifica Vencedor (com suporte a Empate)
+    df_resultado['Fornecedor Vencedor'] = df_resultado.apply(
+        lambda row: identificar_vencedor(row, cols_fornecedores), axis=1
+    )
     
     return df_resultado
-import pandas as pd
-import openpyxl
-import streamlit as st
-
-
-def processar_comparativo(arquivos_carregados):
-    """
-    Lê os arquivos Excel enviados pelos fornecedores e retorna
-    uma DataFrame pivoteada com a comparação de preços.
-    """
-    dados = []
-
-    for arq in arquivos_carregados:
-        try:
-            # 1. Abre com openpyxl para ler o nome do fornecedor no cabeçalho (célula A1)
-            wb = openpyxl.load_workbook(arq, data_only=True)
-            ws = wb.active
-
-            titulo_a1 = str(ws['A1'].value or '')
-            if "FORNECEDOR:" in titulo_a1:
-                nome_fornecedor = titulo_a1.split("FORNECEDOR:")[-1].strip()
-            else:
-                nome_fornecedor = arq.name.replace(".xlsx", "").replace("Cotacao_", "").replace("_", " ")
-
-            # 2. Lê os dados com Pandas pulando as 2 primeiras linhas do cabeçalho
-            arq.seek(0)
-            df = pd.read_excel(arq, skiprows=2)
-            df.columns = [str(c).strip() for c in df.columns]
-
-            # Localiza colunas automaticamente
-            col_med = [c for c in df.columns if "Descrição" in c or "Medicamento" in c][0]
-            col_prc = [c for c in df.columns if "Preço" in c or "Unitário" in c][0]
-
-            df_temp = df[[col_med, col_prc]].copy()
-            df_temp.columns = ['Medicamento', 'Preço Unitário']
-            df_temp['Fornecedor'] = nome_fornecedor
-
-            # Formata o preço para número booleano/float
-            df_temp['Preço Unitário'] = pd.to_numeric(df_temp['Preço Unitário'], errors='coerce')
-            df_temp = df_temp.dropna(subset=['Medicamento'])
-
-            dados.append(df_temp)
-        except Exception as e:
-            st.error(f"Erro ao processar o arquivo {arq.name}: {e}")
-
-    if not dados:
-        return None
-
-    # Unifica todas as tabelas lidas
-    df_todos = pd.concat(dados, ignore_index=True)
-
-    # Monta a matriz comparativa
-    matriz = df_todos.pivot_table(
-        index='Medicamento',
-        columns='Fornecedor',
-        values='Preço Unitário',
-        aggfunc='first'
-    )
-
-    # Descobre o menor preço e quem ganhou por linha
-    matriz['Menor Preço (R$)'] = matriz.min(axis=1)
-    matriz['Fornecedor Vencedor'] = matriz.drop(columns=['Menor Preço (R$)']).idxmin(axis=1)
-
-    return matriz
