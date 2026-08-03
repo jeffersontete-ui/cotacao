@@ -4,7 +4,9 @@ import pandas as pd
 import streamlit as st
 
 import database
+from calculo_vencedores import aplicar_fornecedor_escolhido
 from comparador import processar_comparativo
+from desempate import tratar_empates_interface
 from fornecedores import (
     adicionar_fornecedor,
     atualizar_fornecedor,
@@ -191,27 +193,13 @@ with tab2:
                 use_container_width=True,
             )
 
-            # ── Desempate na tela
+            # ── Desempate na tela (isolado no módulo desempate.py)
             df_final = df_comparativo.copy()
             df_final["Fornecedor Escolhido"] = df_final["Fornecedor Vencedor"]
+            df_final = tratar_empates_interface(df_final)
 
-            empatados = df_comparativo[
-                df_comparativo["Fornecedor Vencedor"].astype(str).str.startswith("EMPATE")
-            ]
-            if not empatados.empty:
-                st.subheader(f"⚖️ Resolver {len(empatados)} empate(s)")
-                st.caption("Escolha o fornecedor de cada item; a decisão entra direto nos pedidos.")
-                for med, linha in empatados.iterrows():
-                    candidatos = (
-                        str(linha["Fornecedor Vencedor"])
-                        .replace("EMPATE (", "").replace(")", "").split(" / ")
-                    )
-                    escolhido = st.selectbox(
-                        f"{med} — {formata_reais(float(linha['Menor Preço (R$)']))}",
-                        options=candidatos,
-                        key=f"empate_{med}",
-                    )
-                    df_final.loc[med, "Fornecedor Escolhido"] = escolhido
+            # 🛠️ Aplica o recálculo que zera os concorrentes e ajusta os subtotais
+            df_final = aplicar_fornecedor_escolhido(df_final, cols_fornecedores)
 
             col_a, col_b, col_c = st.columns(3)
             col_a.metric("💰 Custo Total Otimizado",
