@@ -108,13 +108,60 @@ def gerar_zip_cotacoes(medicamentos, fornecedores_selecionados):
   return buffer_zip
 
 
+def processar_comparativo(arquivos_carregados):
+  dados = []
+
+  for arq in arquivos_carregados:
+    try:
+      wb = openpyxl.load_workbook(arq, data_only=True)
+      ws = wb.active
+
+      titulo_a1 = str(ws['A1'].value or '')
+      if "FORNECEDOR:" in titulo_a1:
+        nome_fornecedor = titulo_a1.split("FORNECEDOR:")[-1].strip()
+      else:
+        nome_fornecedor = arq.name.replace(".xlsx", "").replace("Cotacao_", "").replace("_", " ")
+
+      arq.seek(0)
+      df = pd.read_excel(arq, skiprows=2)
+      df.columns = [str(c).strip() for c in df.columns]
+
+      col_med = [c for c in df.columns if "Descrição" in c or "Medicamento" in c][0]
+      col_prc = [c for c in df.columns if "Preço" in c or "Unitário" in c][0]
+
+      df_temp = df[[col_med, col_prc]].copy()
+      df_temp.columns = ['Medicamento', 'Preço Unitário']
+      df_temp['Fornecedor'] = nome_fornecedor
+      df_temp['Preço Unitário'] = pd.to_numeric(df_temp['Preço Unitário'], errors='coerce')
+      df_temp = df_temp.dropna(subset=['Medicamento'])
+
+      dados.append(df_temp)
+    except Exception as e:
+      st.error(f"Erro ao processar o arquivo {arq.name}: {e}")
+
+  if not dados:
+    return None
+
+  df_todos = pd.concat(dados, ignore_index=True)
+  matriz = df_todos.pivot_table(
+      index='Medicamento',
+      columns='Fornecedor',
+      values='Preço Unitário',
+      aggfunc='first'
+  )
+  matriz['Menor Preço (R$)'] = matriz.min(axis=1)
+  matriz['Fornecedor Vencedor'] = matriz.drop(columns=['Menor Preço (R$)']).idxmin(axis=1)
+
+  return matriz
+
+
 # -----------------------------------------------------------------------------
 # NAVEGAÇÃO POR ABAS
 # -----------------------------------------------------------------------------
 st.title("💊 Sistema Integrado de Cotações e Fornecedores")
 
-aba_cotacao, aba_cadastro = st.tabs(
-    ["📝 1. Criar Cotação", "👥 2. Cadastro de Fornecedores"]
+aba_cotacao, aba_comparativo, aba_cadastro = st.tabs(
+    ["📝 1. Criar Cotação", "📊 2. Comparar Preços", "🏢 3. Cadastro de Fornecedores"]
 )
 
 # -----------------------------------------------------------------------------
@@ -177,7 +224,43 @@ with aba_cotacao:
       )
 
 # -----------------------------------------------------------------------------
-# ABA 2: CADASTRO DE FORNECEDORES
+# ABA 2: COMPARAR PREÇOS
+# -----------------------------------------------------------------------------
+with aba_comparativo:
+  st.header("📊 Comparativo de Preços das Cotações")
+  st.write("Envie abaixo as planilhas Excel preenchidas que você recebeu dos fornecedores:")
+
+  arquivos_enviados = st.file_uploader(
+      "Selecione as planilhas dos fornecedores (.xlsx)",
+      type=["xlsx"],
+      accept_multiple_files=True,
+  )
+
+  if arquivos_enviados:
+    df_comparativo = processar_comparativo(arquivos_enviados)
+
+    if df_comparativo is not None:
+      st.success(f"✅ {len(arquivos_enviados)} planilha(s) analisada(s) com sucesso!")
+
+      st.subheader("📌 Tabela Comparativa de Preços")
+      st.dataframe(
+          df_comparativo.style.format(
+              subset=[c for c in df_comparativo.columns if c != 'Fornecedor Vencedor'],
+              formatter="R$ {:.2f}"
+          ),
+          use_container_width=True,
+      )
+
+      total_otimizado = df_comparativo['Menor Preço (R$)'].sum()
+      st.metric(
+          label="💰 Custo Total Otimizado (Menor Preço de Cada Item)",
+          value=f"R$ {total_otimizado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+      )
+    else:
+      st.warning("Nenhum dado válido foi encontrado nos arquivos carregados.")
+
+# -----------------------------------------------------------------------------
+# ABA 3: CADASTRO DE FORNECEDORES
 # -----------------------------------------------------------------------------
 with aba_cadastro:
   st.header("Cadastro e Status dos Fornecedores")
