@@ -1,7 +1,12 @@
+import io
 import json
 import os
+import zipfile
+
+import openpyxl
 import pandas as pd
 import streamlit as st
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 # Configuração da página (Modo amplo para facilitar visualização)
 st.set_page_config(
@@ -29,6 +34,75 @@ def salvar_fornecedores(dados):
   """Salva a lista de fornecedores no arquivo JSON."""
   with open(ARQUIVO_JSON, "w", encoding="utf-8") as f:
     json.dump(dados, f, indent=2, ensure_ascii=False)
+
+
+def gerar_zip_cotacoes(medicamentos, fornecedores_selecionados):
+  buffer_zip = io.BytesIO()
+
+  with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as zip_file:
+    for forn in fornecedores_selecionados:
+      wb = openpyxl.Workbook()
+      ws = wb.active
+      ws.title = "Cotação"
+
+      fill_header = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+      font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+      border_thin = Border(
+          left=Side(style='thin', color='D9D9D9'),
+          right=Side(style='thin', color='D9D9D9'),
+          top=Side(style='thin', color='D9D9D9'),
+          bottom=Side(style='thin', color='D9D9D9')
+      )
+
+      ws['A1'] = f"COTAÇÃO DE PREÇOS - FORNECEDOR: {forn.upper()}"
+      ws['A1'].font = Font(name="Calibri", size=14, bold=True, color="1F4E78")
+
+      headers = [
+          "Item",
+          "Descrição do Medicamento",
+          "Qtd",
+          "Preço Unitário (R$)",
+          "Valor Total (R$)",
+          "Marca/Laboratório",
+      ]
+      ws.append([])
+      ws.append(headers)
+
+      for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=3, column=col_num)
+        cell.fill = fill_header
+        cell.font = font_header
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+      for idx, med in enumerate(medicamentos, start=1):
+        row_idx = idx + 3
+        formula_total = f"=C{row_idx}*D{row_idx}"
+        ws.append([idx, med.strip(), 1, "", formula_total, ""])
+
+        ws.cell(row=row_idx, column=1).alignment = Alignment(horizontal="center")
+        ws.cell(row=row_idx, column=3).alignment = Alignment(horizontal="center")
+        ws.cell(row=row_idx, column=4).number_format = 'R$ #,##0.00'
+        ws.cell(row=row_idx, column=5).number_format = 'R$ #,##0.00'
+
+        for c in range(1, 7):
+          ws.cell(row=row_idx, column=c).border = border_thin
+
+      ws.column_dimensions['A'].width = 8
+      ws.column_dimensions['B'].width = 45
+      ws.column_dimensions['C'].width = 10
+      ws.column_dimensions['D'].width = 20
+      ws.column_dimensions['E'].width = 20
+      ws.column_dimensions['F'].width = 25
+
+      excel_buffer = io.BytesIO()
+      wb.save(excel_buffer)
+      excel_buffer.seek(0)
+
+      nome_arquivo = f"Cotacao_{forn.replace(' ', '_')}.xlsx"
+      zip_file.writestr(nome_arquivo, excel_buffer.getvalue())
+
+  buffer_zip.seek(0)
+  return buffer_zip
 
 
 # -----------------------------------------------------------------------------
@@ -79,21 +153,25 @@ with aba_cotacao:
     )
 
   # 3. Botão para Gerar Planilhas
-  if st.button("⚙️ Gerar Planilhas de Cotação", type="primary"):
-    lista_meds = [
-        m.strip() for m in lista_meds.split("\n") if m.strip()
-    ]
+  if st.button("⚙️ Gerar Planilhas de Cotação", use_container_width=True):
+    lista_meds_limpa = [m for m in lista_meds.split("\n") if m.strip()]
 
-    if not lista_meds:
-      st.error("⚠️ Insira pelo menos um medicamento para continuar.")
+    if not lista_meds_limpa:
+      st.warning("⚠️ Por favor, insira pelo menos um medicamento.")
     elif not fornecedores_sel:
-      st.warning("⚠️ Selecione ao menos um fornecedor para a cotação.")
+      st.warning("⚠️ Por favor, selecione pelo menos um fornecedor.")
     else:
-      st.success(
-          f"✅ Cotação gerada com {len(lista_meds)} medicamentos para"
-          f" {len(fornecedores_sel)} fornecedor(es)!"
+      zip_data = gerar_zip_cotacoes(lista_meds_limpa, fornecedores_sel)
+
+      st.success("✅ Planilhas geradas com sucesso!")
+
+      st.download_button(
+          label="📥 Baixar Arquivos de Cotação (.zip)",
+          data=zip_data,
+          file_name="Cotacoes_Fornecedores.zip",
+          mime="application/zip",
+          use_container_width=True,
       )
-      # Aqui entra a chamada da função do seu gerador_excel.py
 
 # -----------------------------------------------------------------------------
 # ABA 2: CADASTRO DE FORNECEDORES
