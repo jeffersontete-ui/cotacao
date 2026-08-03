@@ -78,58 +78,52 @@ with tab1:
 
 with tab2:
     st.header("📊 Comparativo de Preços das Cotações")
-    st.write(
-        "Faça o upload dos arquivos `.xlsx` preenchidos pelos fornecedores para gerar o mapa comparativo:"
-    )
-
+    st.write("Faça o upload das planilhas `.xlsx` devolvidas pelos fornecedores:")
+    
     arquivos_enviados = st.file_uploader(
         "Selecione as planilhas dos fornecedores",
         type=["xlsx"],
-        accept_multiple_files=True,
+        accept_multiple_files=True
     )
-
+    
     if arquivos_enviados:
         df_comparativo = processar_comparativo(arquivos_enviados)
-
+        
         if df_comparativo is not None:
             st.success(f"✅ {len(arquivos_enviados)} planilha(s) analisada(s) com sucesso!")
-
-            st.dataframe(df_comparativo, use_container_width=True)
-
+            
+            # Exibe a tabela comparativa estilizada
+            st.dataframe(
+                df_comparativo.style.highlight_min(
+                    axis=1, 
+                    color='lightgreen', 
+                    subset=[c for c in df_comparativo.columns if c not in ['Menor Preço (R$)', 'Fornecedor Vencedor']]
+                ).format(precision=2, na_rep="-"),
+                use_container_width=True
+            )
+            
             total_otimizado = df_comparativo['Menor Preço (R$)'].sum()
             st.metric(
-                label="💰 Custo Total Otimizado",
-                value=f"R$ {total_otimizado:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
+                label="💰 Custo Total Otimizado", 
+                value=f"R$ {total_otimizado:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
             )
-
+            
             st.divider()
-
-            st.subheader("🧾 Exportar Pedidos de Compra")
-            st.write("Baixe as ordens de compra agrupadas por distribuidora vencedora:")
-
-            col_pdf, col_excel = st.columns(2)
-
-            with col_pdf:
-                zip_pdf = gerar_zip_pedidos_pdf(df_comparativo)
-                st.download_button(
-                    label="📄 Baixar Pedidos em PDF (.zip)",
-                    data=zip_pdf,
-                    file_name="Pedidos_de_Compra_PDF.zip",
-                    mime="application/zip",
-                    use_container_width=True,
-                )
-
-            with col_excel:
-                zip_excel = gerar_zip_pedidos(df_comparativo)
-                st.download_button(
-                    label="📊 Baixar Pedidos em Excel (.zip)",
-                    data=zip_excel,
-                    file_name="Pedidos_de_Compra_Excel.zip",
-                    mime="application/zip",
-                    use_container_width=True,
-                )
+            
+            # Seção de geração dos PDFs de Pedido
+            st.subheader("🧾 Gerar Pedidos de Compra (PDF)")
+            
+            zip_pedidos = gerar_zip_pedidos_pdf(df_comparativo)
+            
+            st.download_button(
+                label="📦 Baixar Pedidos de Compra em PDF (.zip)",
+                data=zip_pedidos,
+                file_name="Pedidos_de_Compra_PDF.zip",
+                mime="application/zip",
+                use_container_width=True
+            )
         else:
-            st.warning("Nenhum dado válido foi encontrado nos arquivos carregados.")
+            st.error("⚠️ Não foi possível ler os preços das planilhas. Verifique a estrutura dos arquivos.")
 
 with tab3:
     st.header("🏢 Gestão e Cadastro de Fornecedores")
